@@ -5,7 +5,8 @@ Created on Thu Jul 19 17:34:45 2018
 @author: 오종훈
 """
  
-#checks
+# assigned
+# check errors
 
 import pymysql.cursors
 
@@ -70,17 +71,26 @@ def delete_building(cursor):
         print('Building with ID', b_id, 'does not exist!')
         return
     
+    # delete reservations
+    cursor.execute(
+            'DELETE FROM seat '
+            'WHERE EXISTS(SELECT * '
+            '             FROM performance '
+            '             WHERE seat.performance_id = performance.id AND '
+            '                   performance.building_id = %s) ',
+            b_id
+    )
+    # set performances' booked to 0
+    cursor.execute(
+            'UPDATE performance '
+            'SET booked = 0 '
+            'WHERE building_id = %s ',
+            b_id
+    )
+    # deletes performances' building_id by SET NULL
     cursor.execute(
             'DELETE FROM building '
             'WHERE id = %s ',
-            b_id
-    )
-    # delete reservations
-    cursor.execute(
-            'DELETE FROM seats '
-            'WHERE EXISTS(SELECT * '
-            '             FROM seat s JOIN performance p ON(s.performance_id = p.id) '
-            '             WHERE p.building_id = %s) ',
             b_id
     )
     print('Succesfully deleted')
@@ -102,10 +112,26 @@ def insert_performance(cursor):
 
 def delete_performance(cursor):
     p_id = int(input('Performance ID: '))
-    if (check_performance_id_exists(cursor, p_id) == None):
+    performance = check_performance_id_exists(cursor, p_id)
+    if (performance == None):
         print('Performance with ID', p_id, 'does not exist!')
         return
     
+    # update assigned field to TRUE
+    num_performances_assigned = cursor.execute(
+            'SELECT * '
+            'FROM performance '
+            'WHERE building_id = %s ',
+            performance['building_id']
+    )
+    #
+    if (num_performances_assigned == 1):
+        cursor.execute(
+                'UPDATE building '
+                'SET assigned = FALSE '
+                'WHERE id = %s ',
+                performance['building_id']
+        )
     # deletes seats via CASCADE
     cursor.execute(
             'DELETE FROM performance '
@@ -160,6 +186,13 @@ def assign_builing_to_performance(cursor):
         print('A building is already assigned to this performance!')
         return
      
+    # update assigned field to TRUE
+    cursor.execute(
+            'UPDATE building '
+            'SET assigned = TRUE '
+            'WHERE id = %s ',
+            b_id
+    )
     # assign building to performance
     cursor.execute(
             'UPDATE performance '
@@ -345,7 +378,9 @@ def print_performance_data(rows, print_bid = True):
         print('{:<6}{:<26}{:<14}{:<14}{:<14}'.format(*list(values)[:-1]), end = '') 
         if (print_bid):
             if (row['building_id'] != None):
-                print('{:<6}'.format(row['building_id']))     
+                print('{:<6}'.format(row['building_id']))  
+            else:
+                print()
     if (len(rows) != 0):
         print('----------------------------------------'
               '----------------------------------------')
@@ -359,7 +394,7 @@ id    name                              gender        age
 def print_audience_data(rows):
     for row in rows:
         values = row.values()
-        print('{:<6}{:<36}{:<14}{:<14}'.format(*values))
+        print('{:<6}{:<34}{:<14}{:<14}'.format(*values))
     if (len(rows) != 0):
         print('----------------------------------------'
               '----------------------------------------')
