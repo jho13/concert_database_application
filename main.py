@@ -4,9 +4,6 @@ Created on Thu Jul 19 17:34:45 2018
 
 @author: 오종훈
 """
- 
-# assigned
-# check errors
 
 import pymysql.cursors
 
@@ -117,21 +114,22 @@ def delete_performance(cursor):
         print('Performance with ID', p_id, 'does not exist!')
         return
     
-    # update assigned field to TRUE
-    num_performances_assigned = cursor.execute(
-            'SELECT * '
-            'FROM performance '
-            'WHERE building_id = %s ',
-            performance['building_id']
-    )
-    #
-    if (num_performances_assigned == 1):
-        cursor.execute(
-                'UPDATE building '
-                'SET assigned = FALSE '
-                'WHERE id = %s ',
+    # check if building no longer has any performances assigned
+    if (performance['building_id'] != None):
+        num_performances_assigned = cursor.execute(
+                'SELECT * '
+                'FROM performance '
+                'WHERE building_id = %s ',
                 performance['building_id']
         )
+        if (num_performances_assigned == 1):
+            cursor.execute(
+                    'UPDATE building '
+                    'SET assigned = FALSE '
+                    'WHERE id = %s ',
+                    performance['building_id']
+            )
+            
     # deletes seats via CASCADE
     cursor.execute(
             'DELETE FROM performance '
@@ -161,6 +159,23 @@ def delete_audience(cursor):
         print('Audience with ID', a_id, 'does not exist!')
         return
         
+    # decrease booked on performances
+    cursor.execute(
+            'SELECT performance_id, COUNT(*) AS num_seats '
+            'FROM audience JOIN seat ON (audience.id = seat.audience_id) '
+            'WHERE audience.id = %s '
+            'GROUP BY performance_id ',
+            a_id
+    )
+    
+    for row in cursor.fetchall():
+        cursor.execute(
+                'UPDATE performance '
+                'SET booked = booked - %s '
+                'WHERE id = %s ',
+                (row['num_seats'], row['performance_id'])
+        )
+        
     # deletes reservations via SET NULL
     cursor.execute(
             'DELETE FROM audience '
@@ -168,6 +183,8 @@ def delete_audience(cursor):
             a_id
     )
     print('Succesfully deleted')
+    
+
 
 def assign_builing_to_performance(cursor):
     b_id = int(input('Building ID: '))
@@ -249,14 +266,7 @@ def reserve_seats_for_performance(cursor):
     
 def print_buildings_performances(cursor):
     b_id = int(input('Building ID: '))
-    num_rows = cursor.execute(
-            'SELECT * '
-            'FROM building '
-            'WHERE id = %s '
-            'ORDER BY id ',
-            b_id
-    )
-    if (num_rows == 0):
+    if (check_building_id_exists(cursor, b_id) == None):
         print('Building with ID', b_id, 'does not exist!')
         return
     
@@ -264,20 +274,15 @@ def print_buildings_performances(cursor):
     cursor.execute(
             'SELECT * '
             'FROM performance '
-            'WHERE building_id = %s',
+            'WHERE building_id = %s '
+            'ORDER BY id ',
             b_id
     )
     print_performance_data(cursor.fetchall(), False)
 
 def print_performances_audiences(cursor):
     p_id = int(input('Performance ID: '))
-    num_rows = cursor.execute(
-            'SELECT * '
-            'FROM performance '
-            'WHERE id = %s ',
-            p_id
-    )
-    if (num_rows == 0):
+    if (check_performance_id_exists(cursor, p_id) == None):
         print('Performance with ID', p_id, 'does not exist!')
         return
     
@@ -293,25 +298,21 @@ def print_performances_audiences(cursor):
 
 def print_performances_seats(cursor):
     p_id = int(input('Performance ID: '))
-    num_rows = cursor.execute(
-            'SELECT * '
-            'FROM performance '
-            'WHERE id = %s ',
-            p_id
-    )
-    if (num_rows == 0):
+    performance = check_performance_id_exists(cursor, p_id)
+    if (performance == None):
         print('Performance with ID', p_id, 'does not exist!')
         return
     
-    if (cursor.fetchone()['building_id'] == None):
+    if (performance['building_id'] == None):
         print('No building assigned to performance!')
         return
     
     print_seat_header()
     cursor.execute(
-            'SELECT s.seat_number, s.audience_id '
-            'FROM seat s '
-            'WHERE s.performance_id = %s ',
+            'SELECT seat_number, audience_id '
+            'FROM seat '
+            'WHERE performance_id = %s '
+            'ORDER BY seat_number ',
             p_id
     )
     print_seat_data(cursor.fetchall())
@@ -376,11 +377,10 @@ def print_performance_data(rows, print_bid = True):
     for row in rows:
         values = row.values()
         print('{:<6}{:<26}{:<14}{:<14}{:<14}'.format(*list(values)[:-1]), end = '') 
-        if (print_bid):
-            if (row['building_id'] != None):
-                print('{:<6}'.format(row['building_id']))  
-            else:
-                print()
+        if (not print_bid or row['building_id'] == None):
+            print()
+        else:
+            print('{:<6}'.format(row['building_id']))  
     if (len(rows) != 0):
         print('----------------------------------------'
               '----------------------------------------')
@@ -416,7 +416,7 @@ def print_seat_data(rows):
     if (len(rows) != 0):
         print('----------------------------------------'
               '----------------------------------------')
-        
+
 def check_building_id_exists(cursor, b_id):
     num_rows = cursor.execute(
             'SELECT * '
